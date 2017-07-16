@@ -42,6 +42,7 @@ void setup() {
 
 	scheduler.insert(taskThrottle, PERIOD_TASK_THROTTLE);
 	scheduler.insert(taskFSM, PERIOD_TASK_FSM);
+	scheduler.insert(task1Hz, 1000000);
 
 }
 
@@ -68,6 +69,8 @@ void initTempSensor()
 	Serial.print("Found ");
 	Serial.print(numberOfDevices, DEC);
 	Serial.println(" devices.");
+
+
 
 	// report parasite power requirements
 	Serial.print("Parasite power is: ");
@@ -103,7 +106,7 @@ void initTempSensor()
 
 
 
-			Serial.println("Setting Read Type to ASYNC..");
+			//Serial.println("Setting Read Type to ASYNC..");
 			// set async read operation, bool waitForConversion to false
 			sensors.setWaitForConversion(false);
 
@@ -127,8 +130,9 @@ void initTempSensor()
 	}
 
 	Serial.println("Temp sensor DS18B20 initialization end.");
-}
 
+
+}
 void initPWM()
 {
 	//initialize all timers except for 0, to save time keeping functions
@@ -163,44 +167,60 @@ void taskLed()
 	}
 
 
-	Serial.print("State:");
-	Serial.println(systemState);
+	//Serial.print("State:");
+	//Serial.println(systemState);
 }
 void taskTempSensor()
 {
-	// call sensors.requestTemperatures() to issue a global temperature 
-	// request to all devices on the bus
-	//Serial.print("Requesting temperatures...");
-	sensors.requestTemperatures(); // Send the command to get temperatures
-								   //Serial.println("DONE");
-
-	// Search the wire for address
-	if (sensors.getAddress(tempDeviceAddress, 0))
+	if (tempSensorStatus != tempSensorStatus_InitFail)
 	{
 
-		
-		// It responds almost immediately. Let's print out the data
-	    // method 2 - faster
-		sensor_temp = sensors.getTempC(tempDeviceAddress);
-		//Serial.print("Temp:");
-		//Serial.print(sensor_temp);
+		// call sensors.requestTemperatures() to issue a global temperature 
+		// request to all devices on the bus
+		//Serial.print("Requesting temperatures...");
+		sensors.requestTemperatures(); // Send the command to get temperatures
+									   //Serial.println("DONE");
 
-		if (sensor_temp < TEMP_VALID_MIN || sensor_temp > TEMP_VALID_MAX)
+									   // Search the wire for address
+		if (sensors.getAddress(tempDeviceAddress, 0))
 		{
-			//Serial.println("Sensor Read Temp Fail");
+
+
+			// It responds almost immediately. Let's print out the data
+			// method 2 - faster
+			sensor_temp = sensors.getTempC(tempDeviceAddress);
+			//Serial.print("Temp:");
+			//Serial.print(sensor_temp);
+
+			if (sensor_temp < TEMP_VALID_MIN || sensor_temp > TEMP_VALID_MAX)
+			{
+				//Serial.println("Sensor Read Temp Fail");
+				tempSensorStatus = tempSensorStatus_ReadFail;
+			}
+
+			if (!temp_limit_exceeded)
+			{
+				if (sensor_temp > (OPERATION_TEMP_LIMIT + OPERATION_TEMP_LIMIT_HYSTERESIS))
+					temp_limit_exceeded = true;
+			}
+			else
+			{
+				if (sensor_temp < (OPERATION_TEMP_LIMIT - OPERATION_TEMP_LIMIT_HYSTERESIS))
+					temp_limit_exceeded = false;
+			}
+
+
+
+
+			lastTime_TempSensor = millis();
+		}
+		//else ghost device! Check your power requirements and cabling
+
+		if (millis() - lastTime_TempSensor > TEMP_SENSOR_FAIL_THRESHOLD_TIME)
+		{
 			tempSensorStatus = tempSensorStatus_ReadFail;
 		}
-
-
-		lastTime_TempSensor = millis();
 	}
-	//else ghost device! Check your power requirements and cabling
-
-	if (millis() - lastTime_TempSensor > TEMP_SENSOR_FAIL_THRESHOLD_TIME)
-	{
-		tempSensorStatus = tempSensorStatus_ReadFail;
-	}
-
 }
 void taskThrottle()
 {
@@ -219,6 +239,8 @@ void taskThrottle()
 
 	motor_pwm_command= mapping(throttleVoltage, PWM_THROTTLE_VOLTAGE_MIN, PWM_THROTTLE_VOLTAGE_MAX, PWM_COMMAND_MIN, PWM_COMMAND_MAX);
 	
+
+
 	//Serial.print("Throttle:");
 	//Serial.print(throttleVoltage);
 	//Serial.print("    PWM:");
@@ -227,7 +249,6 @@ void taskThrottle()
 	//Serial.println(millis() - start_time);
 
 }
-
 void taskFSM()
 {
 	if (systemState == SYSTEM_STATE_IDLE)
@@ -238,6 +259,7 @@ void taskFSM()
 
 		if (tempSensorStatus == tempSensorStatus_OK &&
 			throttleStatus == throttleStatus_OK &&
+			!temp_limit_exceeded &&
 			throttleVoltage > PWM_THROTTLE_VOLTAGE_MIN &&
 			throttleVoltage < PWM_THROTTLE_VOLTAGE_SAFE_START)
 		{
@@ -250,7 +272,8 @@ void taskFSM()
 		pwmWrite(PIN_MOTOR, motor_pwm_command);
 
 		if (tempSensorStatus != tempSensorStatus_OK ||
-			throttleStatus != throttleStatus_OK)
+			throttleStatus != throttleStatus_OK ||
+			temp_limit_exceeded)
 		{
 			systemState = SYSTEM_STATE_IDLE;
 		} 
@@ -268,11 +291,12 @@ void taskFSM()
 
 		if (tempSensorStatus != tempSensorStatus_OK ||
 			throttleStatus != throttleStatus_OK  ||
+			temp_limit_exceeded ||
 			(millis()- stopped_state_time) > STOPPED_STATE_TIME_THRESHOLD)
 		{
 			systemState = SYSTEM_STATE_IDLE;
 		}
-		else if (throttleVoltage >= PWM_THROTTLE_VOLTAGE_MIN)
+		else if (throttleVoltage > PWM_THROTTLE_VOLTAGE_MIN)
 		{
 			systemState = SYSTEM_STATE_RUNNING;
 		}
@@ -281,9 +305,6 @@ void taskFSM()
 
 
 }
-
-
-
 float mapping(float input, float inputMin, float inputMax, float outputMin, float outputMax)
 {
 	float result = 0;
@@ -301,4 +322,9 @@ float mapping(float input, float inputMin, float inputMax, float outputMin, floa
 		result = outputMin + (input - inputMin) / (inputMax - inputMin) * (outputMax - outputMin);
 	}
 	return result;
+}
+void task1Hz()
+{
+	if (tempSensorStatus == tempSensorStatus_InitFail)
+		initTempSensor();
 }

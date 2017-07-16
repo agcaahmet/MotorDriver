@@ -16,8 +16,11 @@
 #define PWM_THROTTLE_VOLTAGE_MIN   0.92
 #define PWM_THROTTLE_VOLTAGE_MAX   4.5
 
+#define OPERATION_TEMP_LIMIT    100
+#define OPERATION_TEMP_LIMIT_HYSTERESIS 2
+
 #define PWM_COMMAND_MIN   0
-#define PWM_COMMAND_MAX   200
+#define PWM_COMMAND_MAX   180
 
 #define THROTTLE_VOLTAGE_VALID_MIN   0.4
 #define THROTTLE_VOLTAGE_VALID_MAX   4.8
@@ -29,8 +32,9 @@
 
 #define PERIOD_TASK_THROTTLE 20000
 
-#define STOPPED_STATE_TIME_THRESHOLD   1000
+#define STOPPED_STATE_TIME_THRESHOLD   1500
 
+bool temp_limit_exceeded = false;
 
 uint8_t motor_pwm_command = 0;
 float sensor_temp = 0;
@@ -62,3 +66,4 @@ enum systemStateType
 	SYSTEM_STATE_RUNNING = 1,
 	SYSTEM_STATE_STOPPED = 2,
 }systemState;
+
